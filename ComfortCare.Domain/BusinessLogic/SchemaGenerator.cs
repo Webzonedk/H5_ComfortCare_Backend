@@ -41,21 +41,25 @@ namespace ComfortCare.Domain.BusinessLogic
                 var employeesPartTime30Hours = _employeesRepo.GetAllEmployees().Where(e => e.Weeklyworkhours == 30).ToList();
                 var employeesPartTime25Hours = _employeesRepo.GetAllEmployees().Where(e => e.Weeklyworkhours == 25).ToList();
                 var employeesSubstitutes = _employeesRepo.GetAllEmployees().Where(e => e.Weeklyworkhours > 40).ToList();
+                var employeeFullTimeAnd30Hours = employeesFullTime.Concat(employeesPartTime30Hours).ToList();
 
                 // Reset the current week's work hours for all employees
-                employeesFullTime.ForEach(e => e.WorkhoursWithincurentWeekInSeconds = 0);
-                employeesPartTime30Hours.ForEach(e => e.WorkhoursWithincurentWeekInSeconds = 0);
+                //employeesFullTime.ForEach(e => e.WorkhoursWithincurentWeekInSeconds = 0);
+                //employeesPartTime30Hours.ForEach(e => e.WorkhoursWithincurentWeekInSeconds = 0);
+                employeeFullTimeAnd30Hours.ForEach(e => e.WorkhoursWithincurentWeekInSeconds = 0);
                 employeesPartTime25Hours.ForEach(e => e.WorkhoursWithincurentWeekInSeconds = 0);
                 employeesSubstitutes.ForEach(e => e.WorkhoursWithincurentWeekInSeconds = 0);
 
                 // Update the work hours for the past four weeks for each category of employees
-                UpdateFourWeekWorkHours(employeesFullTime);
-                UpdateFourWeekWorkHours(employeesPartTime30Hours);
+                //UpdateFourWeekWorkHours(employeesFullTime);
+                //UpdateFourWeekWorkHours(employeesPartTime30Hours);
+                UpdateFourWeekWorkHours(employeeFullTimeAnd30Hours);
                 UpdateFourWeekWorkHours(employeesPartTime25Hours);
                 UpdateFourWeekWorkHours(employeesSubstitutes);
 
                 // Assign routes to employees and get the list of employees who have been assigned routes
-                var result = AssignRoutesToEmployees(splitRoutes, employeesFullTime, employeesPartTime30Hours, employeesPartTime25Hours, employeesSubstitutes);
+                //var result = AssignRoutesToEmployees(splitRoutes, employeesFullTime, employeesPartTime30Hours, employeesPartTime25Hours, employeesSubstitutes);
+                var result = AssignRoutesToEmployees(splitRoutes, employeeFullTimeAnd30Hours, employeesPartTime25Hours, employeesSubstitutes);
 
                 // Add the employees to the routes in the database
                 _employeesRepo.AddEmployeesToRoute(result);
@@ -124,16 +128,16 @@ namespace ComfortCare.Domain.BusinessLogic
         /// <param name="employeesPartTime25Hours">List of part-time employees with 25 hours per week.</param>
         /// <param name="employeesSubstitutes">List of substitute employees.</param>
         /// <returns>List of employees who have been assigned routes.</returns>
-        private List<EmployeeEntity> AssignRoutesToEmployees(List<List<RouteEntity>> splitRoutes, List<EmployeeEntity> employeesFullTime, List<EmployeeEntity> employeesPartTime30Hours, List<EmployeeEntity> employeesPartTime25Hours, List<EmployeeEntity> employeesSubstitutes)
+        private List<EmployeeEntity> AssignRoutesToEmployees(List<List<RouteEntity>> splitRoutes, List<EmployeeEntity> employeeFullTimeAnd30Hours, List<EmployeeEntity> employeesPartTime25Hours, List<EmployeeEntity> employeesSubstitutes)
         {
             // Initialize a list to keep track of employees who are needed for the routes
             var employeesNeededForTheRoutes = new List<EmployeeEntity>();
 
             // Assign long routes to full-time employees
-            AssignRoutesToSpecificEmployees(splitRoutes[0], employeesFullTime);
+            AssignRoutesToSpecificEmployees(splitRoutes[0], employeeFullTimeAnd30Hours);
 
             // Assign long routes to part-time 30 hours employees
-            AssignRoutesToSpecificEmployees(splitRoutes[0], employeesPartTime30Hours);
+            //AssignRoutesToSpecificEmployees(splitRoutes[0], employeesPartTime30Hours);
 
             // Assign short routes to part-time 25 hours employees
             AssignRoutesToSpecificEmployees(splitRoutes[1], employeesPartTime25Hours);
@@ -143,8 +147,9 @@ namespace ComfortCare.Domain.BusinessLogic
             AssignRoutesToSpecificEmployees(splitRoutes[1], employeesSubstitutes);
 
             // Combine all employees who have been assigned routes into a single list
-            employeesNeededForTheRoutes.AddRange(employeesFullTime);
-            employeesNeededForTheRoutes.AddRange(employeesPartTime30Hours);
+            //employeesNeededForTheRoutes.AddRange(employeesFullTime);
+            //employeesNeededForTheRoutes.AddRange(employeesPartTime30Hours);
+            employeesNeededForTheRoutes.AddRange(employeeFullTimeAnd30Hours);
             employeesNeededForTheRoutes.AddRange(employeesPartTime25Hours);
             employeesNeededForTheRoutes.AddRange(employeesSubstitutes);
 
@@ -166,7 +171,10 @@ namespace ComfortCare.Domain.BusinessLogic
             while (routes.Any())
             {
                 // Sort employees by their already assigned work hours to prioritize those with fewer hours
-                employees = employees.OrderBy(e => e.WorkhoursWithincurentWeekInSeconds).ToList();
+                //employees = employees.OrderBy(e => e.WorkhoursWithincurentWeekInSeconds).ToList();
+                employees = employees.OrderByDescending(e => e.Weeklyworkhours)
+                                     .ThenByDescending(e => e.WorkhoursWithincurentWeekInSeconds)
+                                     .ToList();
 
                 // Iterate through each employee to try and assign a route
                 foreach (var employee in employees)
@@ -186,7 +194,8 @@ namespace ComfortCare.Domain.BusinessLogic
                         }
 
                         // Calculate the four-week average work hours for the employee
-                        double fourWeekAverage = (employee.PastFourWeeksWorkHoursInSeconds.Sum() + routeDuration) / (employee.PastFourWeeksWorkHoursInSeconds.Count + 1);
+                        //double fourWeekAverage = (employee.PastFourWeeksWorkHoursInSeconds.Sum() + routeDuration) / (employee.PastFourWeeksWorkHoursInSeconds.Count + 1);
+                        double fourWeekAverage = 0;
 
                         // Check if the employee is available to take the route
                         if (IsEmployeeAvailableForRoute(employee, routeDuration, fourWeekAverage, routeDay))
@@ -249,7 +258,7 @@ namespace ComfortCare.Domain.BusinessLogic
             bool withinFourWeekLimit = fourWeekAverage <= employee.Weeklyworkhours * 60 * 60;
 
             // Check if the employee's work hours for the given day and route duration do not exceed the daily limit of 12 hours
-            bool withinDailyLimit = employee.WorkHoursPerDayInSeconds[routeDay] + routeDuration <= 12 * 60 * 60;
+            bool withinDailyLimit = employee.WorkHoursPerDayInSeconds[routeDay] + routeDuration <= 10 * 60 * 60;
 
             //TODO: Remove in production
             if (employee.EmployeeId == 4)
@@ -269,7 +278,7 @@ namespace ComfortCare.Domain.BusinessLogic
             }
 
             // Initialize variable to keep track of the last work day's end time
-            DateTime lastWorkDayEndTime = DateTime.MinValue;            
+            DateTime lastWorkDayEndTime = DateTime.MinValue;
 
             // Return true only if all conditions are met and the employee is not already assigned on the same day
             return withinWeeklyLimit && withinFourWeekLimit && withinDailyLimit && hasRequiredFreeTime && isEmployeeFreeToBeAssignedToRoute;
