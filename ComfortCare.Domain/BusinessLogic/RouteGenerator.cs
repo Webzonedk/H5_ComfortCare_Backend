@@ -30,10 +30,85 @@ namespace ComfortCare.Domain.BusinessLogic
             //return CalculateDailyRoutesInParrelel(numberOfDays, numberOfAssignments);
             //return CalculateDailyRoutesAsThreads(numberOfDays, numberOfAssignments);
             //return CalculateDailyRoutesAsTasks(numberOfDays, numberOfAssignments);
-            return CalculateDailyRoutesAsTasksWithSemaphoreSlim(numberOfDays, numberOfAssignments);
+            //return CalculateDailyRoutesAsTasksWithSemaphoreSlim(numberOfDays, numberOfAssignments);
+            return CalculateDailyRoutesSingleThread(numberOfDays, numberOfAssignments);
 
         }
 
+
+
+        public List<RouteEntity> CalculateDailyRoutesSingleThread(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+
+            var plannedRoutes = new List<RouteEntity>();
+            var currentDay = DateTime.Now.Date;
+
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+
+                foreach (var assignment in availableAssignments)
+                {
+                    NormalizeTimeWindows(currentDay, assignment);
+                }
+
+                var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+                while (availableAssignments.Any())
+                {
+                    var routeTimeTracker = currentDay;
+                    var startAssignment = availableAssignments.OrderBy(o => o.TimeWindowStart).First();
+
+                    InitializeStartRouteAndAssignmentTimes(startAssignment, ref routeTimeTracker);
+
+                    var routeStartingTime = routeTimeTracker;
+                    var currentAssignment = startAssignment;
+                    var route = new List<AssignmentEntity> { startAssignment };
+
+                    while (currentAssignment != null)
+                    {
+                        var nextAssignment = FindNextAssignment(currentAssignment, routeTimeTracker, availableAssignments, distances, route);
+
+                        if (nextAssignment != null)
+                        {
+                            var totalCurrentRouteHours = ((routeTimeTracker.AddSeconds(nextAssignment.Duration)) - routeStartingTime).TotalHours;
+
+                            if (totalCurrentRouteHours < 8.8)
+                            {
+                                UpdateRouteTimeAndAssignment(nextAssignment, ref routeTimeTracker, route, distances);
+                                currentAssignment = nextAssignment;
+                            }
+                            else
+                            {
+                                currentAssignment = null;
+                            }
+                        }
+                        else
+                        {
+                            currentAssignment = null;
+                        }
+                    }
+
+                    AddPlannedRoute(plannedRoutes, route, currentDay);
+                    RemoveProcessedAssignments(availableAssignments, route);
+
+                }
+
+                currentDay = currentDay.AddDays(1);
+            }
+
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
+            Console.WriteLine($"Method execution time: {elapsedMinutes}");
+#endif
+
+            return plannedRoutes;
+        }
 
         public List<RouteEntity> CalculateDailyRoutesAsTasksWithSemaphoreSlim(int numberOfDays, int numberOfAssignments)
         {
