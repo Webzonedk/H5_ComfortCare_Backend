@@ -27,11 +27,12 @@ namespace ComfortCare.Domain.BusinessLogic
 
         public List<RouteEntity> CalculateDailyRoutes(int numberOfDays, int numberOfAssignments)
         {
-            //return CalculateDailyRoutesInParrelel(numberOfDays, numberOfAssignments);
-            //return CalculateDailyRoutesAsThreads(numberOfDays, numberOfAssignments);
-            //return CalculateDailyRoutesAsTasks(numberOfDays, numberOfAssignments);
-            //return CalculateDailyRoutesAsTasksWithSemaphoreSlim(numberOfDays, numberOfAssignments);
-            return CalculateDailyRoutesSingleThread(numberOfDays, numberOfAssignments);
+            //var result = CalculateDailyRoutesInParrelel(numberOfDays, numberOfAssignments);
+            var result = CalculateDailyRoutesAsTasksWithSemaphoreSlim(numberOfDays, numberOfAssignments);
+            //var result= CalculateDailyRoutesAsThreads(numberOfDays, numberOfAssignments);
+            //var result= CalculateDailyRoutesAsTasks(numberOfDays, numberOfAssignments);
+            //var result = CalculateDailyRoutesSingleThread(numberOfDays, numberOfAssignments);
+            return result;
 
         }
 
@@ -103,8 +104,8 @@ namespace ComfortCare.Domain.BusinessLogic
 
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
-            Console.WriteLine($"Method execution time: {elapsedMinutes}");
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Method execution time for single thread: {elapsedMinutes}");
 #endif
 
             return plannedRoutes;
@@ -125,7 +126,7 @@ namespace ComfortCare.Domain.BusinessLogic
             object lockObject = new object(); // Used to synchronize access to 'routes'
 
             // Create a semaphore to limit the number of concurrent tasks
-            SemaphoreSlim semaphore = new SemaphoreSlim(Environment.ProcessorCount); // Number of logical processors (minus 1 to ensure a bit of space if necessary to allow for other tasks)
+            SemaphoreSlim semaphore = new SemaphoreSlim(Environment.ProcessorCount / 2); // Number of logical processors (minus 1 to ensure a bit of space if necessary to allow for other tasks)
 
             for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
             {
@@ -156,11 +157,11 @@ namespace ComfortCare.Domain.BusinessLogic
 
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
-            Console.WriteLine($"Total time used for the tasks: {elapsedMinutes}");
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total time used for the  semaphoreSlim tasks: {elapsedMinutes}");
 #endif
 
-            
+
             return routes;
         }
 
@@ -199,8 +200,8 @@ namespace ComfortCare.Domain.BusinessLogic
             routes = routes.OrderBy(o => o.RouteDate).ToList();
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
-            Console.WriteLine($"Total Time used for the tasks: {elapsedMinutes}");
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total Time used for the threads with tasks: {elapsedMinutes}");
 #endif
             return routes;
         }
@@ -208,7 +209,7 @@ namespace ComfortCare.Domain.BusinessLogic
 
 
 
-        public List<RouteEntity> CalculateDailyRoutesInParrelel(int numberOfDays, int numberOfAssignments) //Slower than threads
+        public List<RouteEntity> CalculateDailyRoutesInParallel(int numberOfDays, int numberOfAssignments) //Slower than threads
         {
 #if DEBUG
             var stopwatch = new Stopwatch();
@@ -235,8 +236,8 @@ namespace ComfortCare.Domain.BusinessLogic
 
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
-            Console.WriteLine($"Total time used for the threads: {elapsedMinutes}");
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total time used for the parallel threads: {elapsedMinutes}");
 #endif
 
             return routes;
@@ -288,12 +289,15 @@ namespace ComfortCare.Domain.BusinessLogic
 
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
             Console.WriteLine($"Total time used for the threads: {elapsedMinutes}");
 #endif
 
             return routes;
         }
+
+
+
 
 
 
@@ -370,7 +374,7 @@ namespace ComfortCare.Domain.BusinessLogic
             }
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalMinutes;
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
             Console.WriteLine($"Current day: {currentDay} - Method execution time: {elapsedMinutes}");
 #endif
             return plannedRoutes;
@@ -495,6 +499,8 @@ namespace ComfortCare.Domain.BusinessLogic
 
             return currentDistance?.DistanceBetween ?? 0;
         }
+
+
 
         /// <summary>
         /// This method adds the current route to the collection of planned routes
