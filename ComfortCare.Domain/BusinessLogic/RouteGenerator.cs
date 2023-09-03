@@ -27,18 +27,246 @@ namespace ComfortCare.Domain.BusinessLogic
 
         public List<RouteEntity> CalculateDailyRoutes(int numberOfDays, int numberOfAssignments)
         {
-            //var result = CalculateDailyRoutesInParrelel(numberOfDays, numberOfAssignments);
-            var result = CalculateDailyRoutesAsTasksWithSemaphoreSlim(numberOfDays, numberOfAssignments);
-            //var result= CalculateDailyRoutesAsThreads(numberOfDays, numberOfAssignments);
+            //var result = CalculateDailyRoutesAsSingleThread(numberOfDays, numberOfAssignments);
+            //var result = CalculateDailyRoutesAsTasksWithSemaphoreSlim(numberOfDays, numberOfAssignments);
+            //var result = CalculateDailyRoutesInParallel(numberOfDays, numberOfAssignments);
             //var result= CalculateDailyRoutesAsTasks(numberOfDays, numberOfAssignments);
-            //var result = CalculateDailyRoutesSingleThread(numberOfDays, numberOfAssignments);
-            return result;
+            //var result= CalculateDailyRoutesAsThreads(numberOfDays, numberOfAssignments);
+            ThreadManager();
+            Console.WriteLine("Main thread takes a nap.");
+            Thread.Sleep(8000);
+            Console.WriteLine("Main thread wakes up.");
+            return null;
+            //return result;
 
         }
 
 
+        private void ThreadManager()
+        {
+            List<Thread> threads = new List<Thread>();
+            //Thread thread1 = new Thread(PrintNubers);
+            for (int i = 0; i < 8; i++)
+            {
+                int index = i;
+                Thread thread = new Thread(() =>
+                {
+                    PrintNumbers(index);
+                });
+                thread.Start();
+            }
+        }
 
-        public List<RouteEntity> CalculateDailyRoutesSingleThread(int numberOfDays, int numberOfAssignments)
+        private void PrintNumbers(int threadNumber)
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                Console.WriteLine($"ThreadNumber: {threadNumber} - assignment: {i}");
+                Thread.Sleep(300);
+            }
+        }
+
+
+        #endregion
+
+        #region Private Methods
+        /// <summary>
+        private List<RouteEntity> CalculateDailyRoutesAsSingleThread(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var routes = new List<RouteEntity>();
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                int capturedDayIndex = dayIndex;
+                List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                routes.AddRange(dailyroutes);
+            }
+
+            routes = routes.OrderBy(o => o.RouteDate).ToList();
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total Time used for single thread operation: {elapsedMinutes}");
+#endif
+            return routes;
+        }
+
+        private List<RouteEntity> CalculateDailyRoutesAsTasksWithSemaphoreSlim(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var routes = new List<RouteEntity>();
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            // Create a list to hold the tasks
+            List<Task> tasks = new List<Task>();
+            object lockObject = new object(); // Used to synchronize access to 'routes'
+
+            // Create a semaphore to limit the number of concurrent tasks
+            SemaphoreSlim semaphore = new SemaphoreSlim(Environment.ProcessorCount / 2); // Number of logical processors (minus 1 to ensure a bit of space if necessary to allow for other tasks)
+
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                int capturedDayIndex = dayIndex; // Capture the day index to avoid closure issues
+                tasks.Add(Task.Run(async () =>
+                {
+                    await semaphore.WaitAsync(); // Acquire the semaphore
+                    try
+                    {
+                        var dailyRoutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                        lock (lockObject) // Synchronize access to 'routes'
+                        {
+                            routes.AddRange(dailyRoutes);
+                        }
+                    }
+                    finally
+                    {
+                        semaphore.Release(); // Release the semaphore
+                    }
+                }));
+            }
+
+            // Wait for all tasks to complete
+            Task.WhenAll(tasks).Wait();
+
+            // Sort the routes
+            routes = routes.OrderBy(o => o.RouteDate).ToList();
+
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total time used for the  semaphoreSlim tasks: {elapsedMinutes}");
+#endif
+
+
+            return routes;
+        }
+
+        private List<RouteEntity> CalculateDailyRoutesInParallel(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            // Create a concurrent bag to hold the routes (thread safe)
+            ConcurrentBag<RouteEntity> concurrentRoutes = new ConcurrentBag<RouteEntity>();
+            // Create a list of threads
+            Parallel.ForEach(Enumerable.Range(0, numberOfDays), dayIndex =>
+            {
+                var dailyRoutes = CalculateRoutesForSingleDay(dayIndex, availableAssignments, distances);
+                foreach (var route in dailyRoutes)
+                {
+                    concurrentRoutes.Add(route);
+                }
+            });
+            // Convert the concurrent bag to a list
+            var routes = concurrentRoutes.ToList();
+            // Sort the routes by date
+            routes = routes.OrderBy(o => o.RouteDate).ToList();
+
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total time used for the parallel threads: {elapsedMinutes}");
+#endif
+
+            return routes;
+        }
+
+        private List<RouteEntity> CalculateDailyRoutesAsTasks(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var routes = new List<RouteEntity>();
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            var tasks = new List<Task<List<RouteEntity>>>();
+            //var currentDay = DateTime.Now.Date;
+            List<Thread> threads = new List<Thread>();
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                int capturedDayIndex = dayIndex;
+                tasks.Add(Task.Run(() => CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances)));
+            }
+
+            Task.WhenAll(tasks).Wait();
+
+            foreach (var task in tasks)
+            {
+                routes.AddRange(task.Result);
+            }
+            routes = routes.OrderBy(o => o.RouteDate).ToList();
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total Time used for the threads with tasks: {elapsedMinutes}");
+#endif
+            return routes;
+        }
+
+        private List<RouteEntity> CalculateDailyRoutesAsThreads(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var routes = new List<RouteEntity>();
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            // Create a list to hold the threads
+            List<Thread> threads = new List<Thread>();
+            object lockObject = new object(); // Used to synchronize access to 'routes'
+
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                int capturedDayIndex = dayIndex; // Capture the day index to avoid closure issues
+                Thread thread = new Thread(() =>
+                {
+                    var dailyRoutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                    lock (lockObject) // Synchronize access to 'routes'
+                    {
+                        routes.AddRange(dailyRoutes);
+                    }
+                });
+                thread.Start();
+                threads.Add(thread);
+            }
+
+            // Wait for all threads to complete
+            foreach (Thread thread in threads)
+            {
+                thread.Join();
+            }
+
+            // Sort the routes
+            routes = routes.OrderBy(o => o.RouteDate).ToList();
+
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total time used for the threads: {elapsedMinutes}");
+#endif
+
+            return routes;
+        }
+
+        private List<RouteEntity> CalculateDailyRoutesSingleThread_Old(int numberOfDays, int numberOfAssignments)
         {
 #if DEBUG
             var stopwatch = new Stopwatch();
@@ -111,195 +339,6 @@ namespace ComfortCare.Domain.BusinessLogic
             return plannedRoutes;
         }
 
-        public List<RouteEntity> CalculateDailyRoutesAsTasksWithSemaphoreSlim(int numberOfDays, int numberOfAssignments)
-        {
-#if DEBUG
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-#endif
-            var routes = new List<RouteEntity>();
-            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
-            var distances = _routeRepo.GetDistanceses(availableAssignments);
-
-            // Create a list to hold the tasks
-            List<Task> tasks = new List<Task>();
-            object lockObject = new object(); // Used to synchronize access to 'routes'
-
-            // Create a semaphore to limit the number of concurrent tasks
-            SemaphoreSlim semaphore = new SemaphoreSlim(Environment.ProcessorCount / 2); // Number of logical processors (minus 1 to ensure a bit of space if necessary to allow for other tasks)
-
-            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
-            {
-                int capturedDayIndex = dayIndex; // Capture the day index to avoid closure issues
-                tasks.Add(Task.Run(async () =>
-                {
-                    await semaphore.WaitAsync(); // Acquire the semaphore
-                    try
-                    {
-                        var dailyRoutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
-                        lock (lockObject) // Synchronize access to 'routes'
-                        {
-                            routes.AddRange(dailyRoutes);
-                        }
-                    }
-                    finally
-                    {
-                        semaphore.Release(); // Release the semaphore
-                    }
-                }));
-            }
-
-            // Wait for all tasks to complete
-            Task.WhenAll(tasks).Wait();
-
-            // Sort the routes
-            routes = routes.OrderBy(o => o.RouteDate).ToList();
-
-#if DEBUG
-            stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
-            Console.WriteLine($"Total time used for the  semaphoreSlim tasks: {elapsedMinutes}");
-#endif
-
-
-            return routes;
-        }
-
-
-        /// <summary>
-        /// This method is used to calculate the routes for all the days by using tasks
-        /// </summary>
-        /// <param name="numberOfDays"></param>
-        /// <param name="numberOfAssignments"></param>
-        /// <returns></returns>
-        public List<RouteEntity> CalculateDailyRoutesAsTasks(int numberOfDays, int numberOfAssignments)
-        {
-#if DEBUG
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-#endif
-            var routes = new List<RouteEntity>();
-            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
-            var distances = _routeRepo.GetDistanceses(availableAssignments);
-
-            var tasks = new List<Task<List<RouteEntity>>>();
-            //var currentDay = DateTime.Now.Date;
-            List<Thread> threads = new List<Thread>();
-            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
-            {
-                int capturedDayIndex = dayIndex;
-                tasks.Add(Task.Run(() => CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances)));
-            }
-
-            Task.WhenAll(tasks).Wait();
-
-            foreach (var task in tasks)
-            {
-                routes.AddRange(task.Result);
-            }
-            routes = routes.OrderBy(o => o.RouteDate).ToList();
-#if DEBUG
-            stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
-            Console.WriteLine($"Total Time used for the threads with tasks: {elapsedMinutes}");
-#endif
-            return routes;
-        }
-
-
-
-
-        public List<RouteEntity> CalculateDailyRoutesInParallel(int numberOfDays, int numberOfAssignments) //Slower than threads
-        {
-#if DEBUG
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-#endif
-            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
-            var distances = _routeRepo.GetDistanceses(availableAssignments);
-
-            // Create a concurrent bag to hold the routes (thread safe)
-            ConcurrentBag<RouteEntity> concurrentRoutes = new ConcurrentBag<RouteEntity>();
-            // Create a list of threads
-            Parallel.ForEach(Enumerable.Range(0, numberOfDays), dayIndex =>
-            {
-                var dailyRoutes = CalculateRoutesForSingleDay(dayIndex, availableAssignments, distances);
-                foreach (var route in dailyRoutes)
-                {
-                    concurrentRoutes.Add(route);
-                }
-            });
-            // Convert the concurrent bag to a list
-            var routes = concurrentRoutes.ToList();
-            // Sort the routes by date
-            routes = routes.OrderBy(o => o.RouteDate).ToList();
-
-#if DEBUG
-            stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
-            Console.WriteLine($"Total time used for the parallel threads: {elapsedMinutes}");
-#endif
-
-            return routes;
-        }
-
-        /// <summary>
-        /// This method is used to calculate the routes for all the days by using threads
-        /// </summary>
-        /// <param name="numberOfDays"></param>
-        /// <param name="numberOfAssignments"></param>
-        /// <returns></returns>
-        public List<RouteEntity> CalculateDailyRoutesAsThreads(int numberOfDays, int numberOfAssignments)
-        {
-#if DEBUG
-            var stopwatch = new Stopwatch();
-            stopwatch.Start();
-#endif
-            var routes = new List<RouteEntity>();
-            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
-            var distances = _routeRepo.GetDistanceses(availableAssignments);
-
-            // Create a list to hold the threads
-            List<Thread> threads = new List<Thread>();
-            object lockObject = new object(); // Used to synchronize access to 'routes'
-
-            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
-            {
-                int capturedDayIndex = dayIndex; // Capture the day index to avoid closure issues
-                Thread thread = new Thread(() =>
-                {
-                    var dailyRoutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
-                    lock (lockObject) // Synchronize access to 'routes'
-                    {
-                        routes.AddRange(dailyRoutes);
-                    }
-                });
-                thread.Start();
-                threads.Add(thread);
-            }
-
-            // Wait for all threads to complete
-            foreach (Thread thread in threads)
-            {
-                thread.Join();
-            }
-
-            // Sort the routes
-            routes = routes.OrderBy(o => o.RouteDate).ToList();
-
-#if DEBUG
-            stopwatch.Stop(); // Stop the stopwatch
-            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
-            Console.WriteLine($"Total time used for the threads: {elapsedMinutes}");
-#endif
-
-            return routes;
-        }
-
-
-
-
-
 
         /// <summary>
         /// This method is used to calculate the routes for a single day, and will be used by the thread method
@@ -308,7 +347,7 @@ namespace ComfortCare.Domain.BusinessLogic
         /// <param name="availableAssignments"></param>
         /// <param name="distances"></param>
         /// <returns>Returns a list of routes for a single day</returns>
-        public List<RouteEntity> CalculateRoutesForSingleDay(int daysToAdd, List<AssignmentEntity> availableAssignments, List<DistanceEntity> distances)
+        private List<RouteEntity> CalculateRoutesForSingleDay(int daysToAdd, List<AssignmentEntity> availableAssignments, List<DistanceEntity> distances)
         {
 #if DEBUG           
 
@@ -383,11 +422,6 @@ namespace ComfortCare.Domain.BusinessLogic
 
 
 
-
-        #endregion
-
-        #region Private Methods
-        /// <summary>
         /// This method will set the date for the current
         /// assignments time window
         /// </summary>
