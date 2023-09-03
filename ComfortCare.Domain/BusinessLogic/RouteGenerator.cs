@@ -29,15 +29,18 @@ namespace ComfortCare.Domain.BusinessLogic
         {
             //var result = CalculateDailyRoutesAsSingleThread(numberOfDays, numberOfAssignments);
             //var result = CalculateDailyRoutesAsTasksWithSemaphoreSlim(numberOfDays, numberOfAssignments);
+            var result = CalculateDailyRoutesAsTasksWithSemaphoreSlimLive(numberOfDays, numberOfAssignments);
             //var result = CalculateDailyRoutesInParallel(numberOfDays, numberOfAssignments);
             //var result= CalculateDailyRoutesAsTasks(numberOfDays, numberOfAssignments);
             //var result= CalculateDailyRoutesAsThreads(numberOfDays, numberOfAssignments);
-            ThreadManager();
-            Console.WriteLine("Main thread takes a nap.");
-            Thread.Sleep(8000);
-            Console.WriteLine("Main thread wakes up.");
-            return null;
-            //return result;
+            return result;
+
+            //ThreadManager();
+            //Console.WriteLine("Main thread takes a nap.");
+            //Thread.Sleep(8000);
+            //Console.WriteLine("Main thread wakes up.");
+            //return null;
+
 
         }
 
@@ -70,7 +73,84 @@ namespace ComfortCare.Domain.BusinessLogic
         #endregion
 
         #region Private Methods
-        /// <summary>
+
+
+        private List<RouteEntity> CalculateDailyRoutesAsTasksWithSemaphoreSlimLive(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            var routes = new ConcurrentBag<RouteEntity>(); //Use ConcurrentBag to share data between threads
+            // Create a list to hold the tasks
+            List<Task> tasks = new List<Task>();
+            //-----------------SemaphoreSlim-----------------
+            SemaphoreSlim semaphore = new SemaphoreSlim(Environment.ProcessorCount); // Create the semaphore and set it to allow threads based on the number of processors
+
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                int capturedDayIndex = dayIndex;
+                //adding tasks to the list
+                tasks.Add(Task.Run(async () =>
+                {
+                    await semaphore.WaitAsync(); // Wait for the semaphore to allow a thread to pass
+                    try
+                    {
+                        List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                        foreach (var route in dailyroutes)
+                        {
+                            routes.Add(route); //Add the route to the ConcurrentBag
+                        }
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }));
+            }
+            Task.WhenAll(tasks).Wait(); // Wait for all the tasks to finish
+            var sortedRoutes = routes.OrderBy(o => o.RouteDate).ToList();
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total Time used for single thread operation: {elapsedMinutes}");
+#endif
+            return sortedRoutes;
+        }
+
+
+        private List<RouteEntity> CalculateDailyRoutesAsTasksWithSemaphoreSlimLive_Start(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var routes = new List<RouteEntity>();
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            //-----------------SemaphoreSlim-----------------
+
+
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                int capturedDayIndex = dayIndex;
+                List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                routes.AddRange(dailyroutes);
+            }
+
+            routes = routes.OrderBy(o => o.RouteDate).ToList();
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total Time used for single thread operation: {elapsedMinutes}");
+#endif
+            return routes;
+        }
+
         private List<RouteEntity> CalculateDailyRoutesAsSingleThread(int numberOfDays, int numberOfAssignments)
         {
 #if DEBUG
@@ -162,7 +242,7 @@ namespace ComfortCare.Domain.BusinessLogic
 
             // Create a concurrent bag to hold the routes (thread safe)
             ConcurrentBag<RouteEntity> concurrentRoutes = new ConcurrentBag<RouteEntity>();
-            // Create a list of threads
+            // Create a parallel list of threads
             Parallel.ForEach(Enumerable.Range(0, numberOfDays), dayIndex =>
             {
                 var dailyRoutes = CalculateRoutesForSingleDay(dayIndex, availableAssignments, distances);
@@ -171,10 +251,8 @@ namespace ComfortCare.Domain.BusinessLogic
                     concurrentRoutes.Add(route);
                 }
             });
-            // Convert the concurrent bag to a list
-            var routes = concurrentRoutes.ToList();
             // Sort the routes by date
-            routes = routes.OrderBy(o => o.RouteDate).ToList();
+            var routes = concurrentRoutes.OrderBy(o => o.RouteDate).ToList();
 
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
@@ -196,7 +274,7 @@ namespace ComfortCare.Domain.BusinessLogic
             var distances = _routeRepo.GetDistanceses(availableAssignments);
 
             var tasks = new List<Task<List<RouteEntity>>>();
-            //var currentDay = DateTime.Now.Date;
+
             List<Thread> threads = new List<Thread>();
             for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
             {
