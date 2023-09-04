@@ -48,7 +48,6 @@ namespace ComfortCare.Domain.BusinessLogic
         private void ThreadManager()
         {
             List<Thread> threads = new List<Thread>();
-            //Thread thread1 = new Thread(PrintNubers);
             for (int i = 0; i < 8; i++)
             {
                 int index = i;
@@ -73,8 +72,6 @@ namespace ComfortCare.Domain.BusinessLogic
         #endregion
 
         #region Private Methods
-
-
         private List<RouteEntity> CalculateDailyRoutesAsTasksWithSemaphoreSlimLive(int numberOfDays, int numberOfAssignments)
         {
 #if DEBUG
@@ -84,39 +81,94 @@ namespace ComfortCare.Domain.BusinessLogic
             var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
             var distances = _routeRepo.GetDistanceses(availableAssignments);
 
-            var routes = new ConcurrentBag<RouteEntity>(); //Use ConcurrentBag to share data between threads
+            //Change to ConcurrentBag to hold the routes
+            var routes = new List<RouteEntity>();
             // Create a list to hold the tasks
-            List<Task> tasks = new List<Task>();
-            //-----------------SemaphoreSlim-----------------
-            SemaphoreSlim semaphore = new SemaphoreSlim(Environment.ProcessorCount); // Create the semaphore and set it to allow threads based on the number of processors
+
+            // Create the semaphore and set it to allow threads based on the number of processors
+
 
             for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
             {
                 int capturedDayIndex = dayIndex;
+
                 //adding tasks to the list
-                tasks.Add(Task.Run(async () =>
+
+                // Wait for the semaphore to allow a thread to pass
+
+                try
                 {
-                    await semaphore.WaitAsync(); // Wait for the semaphore to allow a thread to pass
-                    try
-                    {
-                        List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
-                        foreach (var route in dailyroutes)
-                        {
-                            routes.Add(route); //Add the route to the ConcurrentBag
-                        }
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }));
+                    List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                    //Add the route to the ConcurrentBag
+
+                }
+                finally
+                {
+                    //Release the semaphore
+
+                }
+
             }
-            Task.WhenAll(tasks).Wait(); // Wait for all the tasks to finish
+            // Wait for all the tasks to finish
+
             var sortedRoutes = routes.OrderBy(o => o.RouteDate).ToList();
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
             double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
-            Console.WriteLine($"Total Time used for single thread operation: {elapsedMinutes}");
+            Console.WriteLine($"Total Time used for semaphoreSlim operation: {elapsedMinutes}");
+#endif
+            return sortedRoutes;
+        }
+
+
+        private List<RouteEntity> CalculateDailyRoutesAsTasksWithSemaphoreSlimLive_end(int numberOfDays, int numberOfAssignments)
+        {
+#if DEBUG
+            var stopwatch = new Stopwatch();
+            stopwatch.Start();
+#endif
+            var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
+            var distances = _routeRepo.GetDistanceses(availableAssignments);
+
+            //Create a ConcurrentBag to hold the routes
+            var routes = new ConcurrentBag<RouteEntity>();
+            // Create a list to hold the tasks
+            List<Task> tasks = new List<Task>();
+            // Create the semaphore and set it to allow threads based on the number of processors
+            SemaphoreSlim semaphore = new SemaphoreSlim(Environment.ProcessorCount);
+
+            for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
+            {
+                int capturedDayIndex = dayIndex;
+
+                //adding tasks to the list
+                tasks.Add(Task.Run(async () =>
+                {
+                    // Wait for the semaphore to allow a thread to pass
+                    await semaphore.WaitAsync();
+                    try
+                    {
+                        List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                        //Add the route to the ConcurrentBag
+                        foreach (var route in dailyroutes)
+                        {
+                            routes.Add(route);
+                        }
+                    }
+                    finally
+                    {
+                        //Release the semaphore
+                        semaphore.Release();
+                    }
+                }));
+            }
+            // Wait for all the tasks to finish
+            Task.WhenAll(tasks).Wait();
+            var sortedRoutes = routes.OrderBy(o => o.RouteDate).ToList();
+#if DEBUG
+            stopwatch.Stop(); // Stop the stopwatch
+            double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
+            Console.WriteLine($"Total Time used for semaphore operation: {elapsedMinutes}");
 #endif
             return sortedRoutes;
         }
@@ -128,27 +180,46 @@ namespace ComfortCare.Domain.BusinessLogic
             var stopwatch = new Stopwatch();
             stopwatch.Start();
 #endif
-            var routes = new List<RouteEntity>();
             var availableAssignments = _routeRepo.GetNumberOfAssignments(numberOfAssignments);
             var distances = _routeRepo.GetDistanceses(availableAssignments);
 
-            //-----------------SemaphoreSlim-----------------
+            //Change to ConcurrentBag to hold the routes
+            var routes = new List<RouteEntity>();
+            // Create a list to hold the tasks
+
+            // Create the semaphore and set it to allow threads based on the number of processors
 
 
             for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
             {
                 int capturedDayIndex = dayIndex;
-                List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
-                routes.AddRange(dailyroutes);
-            }
 
-            routes = routes.OrderBy(o => o.RouteDate).ToList();
+                //adding tasks to the list
+              
+                    // Wait for the semaphore to allow a thread to pass
+
+                    try
+                    {
+                        List<RouteEntity> dailyroutes = CalculateRoutesForSingleDay(capturedDayIndex, availableAssignments, distances);
+                        //Add the route to the ConcurrentBag
+
+                    }
+                    finally
+                    {
+                        //Release the semaphore
+
+                    }
+            
+            }
+            // Wait for all the tasks to finish
+
+            var sortedRoutes = routes.OrderBy(o => o.RouteDate).ToList();
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
             double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
-            Console.WriteLine($"Total Time used for single thread operation: {elapsedMinutes}");
+            Console.WriteLine($"Total Time used for semaphoreSlim operation: {elapsedMinutes}");
 #endif
-            return routes;
+            return sortedRoutes;
         }
 
         private List<RouteEntity> CalculateDailyRoutesAsSingleThread(int numberOfDays, int numberOfAssignments)
