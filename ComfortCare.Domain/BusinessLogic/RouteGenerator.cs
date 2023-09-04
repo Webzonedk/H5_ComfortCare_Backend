@@ -85,7 +85,7 @@ namespace ComfortCare.Domain.BusinessLogic
             var routes = new ConcurrentBag<RouteEntity>();
             // Create a list to hold the tasks
             List<Task> tasks = new List<Task>();
-            // Create the semaphore and set it to allow threads based on the number of processors
+            // Create the semaphoreSlim and set it to allow threads based on the number of processors
             SemaphoreSlim semaphoreSlim = new SemaphoreSlim(Environment.ProcessorCount);
 
             for (int dayIndex = 0; dayIndex < numberOfDays; dayIndex++)
@@ -95,7 +95,6 @@ namespace ComfortCare.Domain.BusinessLogic
                 //adding tasks to the list
                 tasks.Add(Task.Run(async () =>
                 {
-
 
                     // Wait for the semaphore to allow a thread to pass
                     await semaphoreSlim.WaitAsync();
@@ -113,12 +112,11 @@ namespace ComfortCare.Domain.BusinessLogic
                         //Release the semaphore
                         semaphoreSlim.Release();
                     }
-
                 }));
             }
             // Wait for all the tasks to finish
             Task.WhenAll(tasks).Wait();
-            var sortedRoutes = routes.OrderBy(o => o.RouteDate).ToList();
+            var sortedRoutes = routes.OrderBy(r => r.RouteDate).ToList();
 #if DEBUG
             stopwatch.Stop(); // Stop the stopwatch
             double elapsedMinutes = stopwatch.Elapsed.TotalSeconds;
